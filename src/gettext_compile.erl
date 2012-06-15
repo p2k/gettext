@@ -207,19 +207,23 @@ mk_header(true  = _UseOrigHeader, _LC) ->
 %%% --------------------------------------------------------------------
 
 %% FIXME: Gettext_App_Name comes from GETTEXT_TMP_NAME - this is broken!
-parse_transform(Form,Opts) ->
+parse_transform(Form, Opts) ->
     case lists:member(gettext, Opts) of
 	true ->
 	    {Gettext_App_Name, GtxtDir, _} = get_env(),
 	    open_epot_file(Gettext_App_Name, GtxtDir),
-	    ?debug( "--- Opts --- ~p~n",[Opts]),
-	    ?debug("--- Env --- isd_type=~p , gettext_dir=~p~n", 
-		   [Gettext_App_Name,GtxtDir]),
-            try pt(Form, Opts) after close_epot_file() end,
-	    Form;
+	    ?debug("--- Opts --- ~p~n", [Opts]),
+	    ?debug("--- Env --- isd_type=~p , gettext_dir=~p~n", [Gettext_App_Name, GtxtDir]),
+            try
+                put(fname, ""),
+                scan(Form)
+            after
+                close_epot_file()
+            end;
 	_ ->
-	    Form
-    end.
+	    ok
+    end,
+    Form.
 
 get_env() ->
     {os:getenv(?ENV_TMP_NAME),
@@ -227,59 +231,62 @@ get_env() ->
      os:getenv(?ENV_DEF_LANG)}.
 
 
-pt(Form, Opts) ->
-    put(fname, ""),
-    pt(Form, Opts, undefined).
-
-pt([H|T],Opts,Func) when is_list(H) ->
-    ?debug( "--- 1 --- ~p~n",[H]),
-    F = fun (X) -> pt(X,Opts,Func) end,
-    [lists:map(F,H)|pt(T,Opts,Func)];
+scan([H|T]) when is_list(H) ->
+    lists:foreach(fun (X) -> scan(X) end, H),
+    scan(T);
 %%%
-pt([{call,_,{remote,_,{atom,_,gettext},{atom,_,key2str}},
-    [{string,L5,String} | _]} = H | T], Opts, Func) ->
+scan([{call,_,{remote,_,{atom,_,gettext},{atom,_,key2str}},
+    [{string,L5,String} | _]} | T]) ->
     ?debug( "++++++ String=<~p>~n",[String]),
     dump(String, L5),
-    [H | pt(T, Opts, Func)];
+    scan(T);
 %%%
-pt([{attribute,_L,module,Mod} = H | T], Opts, Func) ->
+scan([{attribute,_L,module,Mod} | T]) ->
     put(fname, to_list(Mod) ++ ".erl"),
     ?debug( "++++++ Filename 1 =<~p>~n",[get(fname)]),
-    [H | pt(T, Opts, Func)];
+    scan(T);
 %%%
-pt([{attribute,_L,yawsfile,Fname} = H | T], Opts, Func) ->
+scan([{attribute,_L,yawsfile,Fname} | T]) ->
     put(fname, to_list(Fname)),
     ?debug( "++++++ Filename 2 =<~p>~n",[get(fname)]),
-    [H | pt(T, Opts, Func)];
+    scan(T);
 %%%
-pt([{block,N,B}|T], Opts, Func) ->
-    ?debug( "--- 2 --- ~p~n",[block]),
-    Block = {block,N,pt(B,Opts,Func)},
-    [Block|pt(T, Opts, Func)];
+scan([{block,_,B} | T]) ->
+    scan(B),
+    scan(T);
 %%%
-pt([H|T], Opts, Func) when is_tuple(H) ->
-    ?debug( "--- 3 --- ~p~n",[H]),
-    [while(size(H), H, Opts, Func) | pt(T, Opts, Func)];
+scan([{record,_,_,B} | T]) ->
+    scan(B),
+    scan(T);
 %%%
-pt([H|T], Opts, Func) ->
-    ?debug( "--- 4 --- ~p~n",[H]),
-    [H | pt(T, Opts, Func)];
+scan([{record_field,_,_,B} | T]) ->
+    scan(B),
+    scan(T);
 %%%
-pt(T, Opts, Func) when is_tuple(T) ->
-    ?debug( "--- 5 --- ~p~n",[T]),
-    while(size(T), T, Opts, Func);
+scan([H|T]) when is_tuple(H) ->
+    scan(size(H), H),
+    scan(T);
 %%%
-pt(X, _, _) ->
-    ?debug( "--- 6 --- ~p~n",[X]),
-    X.
+scan([_|T]) ->
+    scan(T);
+%%%
+scan({call,_,{remote,_,{atom,_,gettext},{atom,_,key2str}},
+    [{string,L5,String} | _]}) ->
+    ?debug( "++++++ String=<~p>~n",[String]),
+    dump(String, L5);
+scan(T) when is_tuple(T) ->
+    scan(size(T), T);
+%%%
+scan(_) ->
+    ok.
 
-while(_,{block,N,B},Opts,Func) ->
-    {block,N,pt(B,Opts,Func)};
-while(N,T,Opts,Func) when N>0 ->
-    NT = setelement(N,T,pt(element(N,T),Opts,Func)),
-    while(N-1,NT,Opts,Func);
-while(0,T,_,_) ->
-    T.
+scan(0, _) ->
+    ok;
+scan(_, {block, _, B}) ->
+    scan(B);
+scan(N, T) ->
+    scan(element(N, T)),
+    scan(N-1, T).
 
 
 dump("", _) -> ok;
@@ -322,7 +329,3 @@ to_list(A) when is_atom(A)    -> atom_to_list(A);
 to_list(I) when is_integer(I) -> integer_to_list(I);
 to_list(B) when is_binary(B)  -> binary_to_list(B);
 to_list(L) when is_list(L)    -> L.
-
-
-
-
