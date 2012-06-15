@@ -236,18 +236,8 @@ pt([H|T],Opts,Func) when is_list(H) ->
     F = fun (X) -> pt(X,Opts,Func) end,
     [lists:map(F,H)|pt(T,Opts,Func)];
 %%%
-pt({call,L1,{remote,L2,{atom,L3,gettext},{atom,L4,key2str}},
-    [{string,L5,String}]}, _Opts, _Func) ->
-    ?debug( "++++++ String=<~p>~n",[String]),
-    dump(String, L5),
-    {call,L1,
-     {remote,L2,
-      {atom,L3,gettext},
-      {atom,L4,key2str}},
-     [{string,L5,String}]};
-%%%
 pt([{call,_,{remote,_,{atom,_,gettext},{atom,_,key2str}},
-    [{string,L5,String}]} = H | T], Opts, Func) ->
+    [{string,L5,String} | _]} = H | T], Opts, Func) ->
     ?debug( "++++++ String=<~p>~n",[String]),
     dump(String, L5),
     [H | pt(T, Opts, Func)];
